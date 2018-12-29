@@ -43,6 +43,8 @@ def challenge():
             ch = hashlib.sha3_512(get_challenge(ip)).digest()
             resp = rsa.decrypt(base64.b64decode(request.get_data()), my_sec_key)
             if secrets.compare_digest(ch, resp):
+                with open('last-login-time.txt','w') as o:
+                    o.write(str(time.time()))
                 return 'Challenge passed!'
         except:
             print('Error while decrypting.')
