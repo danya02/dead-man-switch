@@ -5,6 +5,7 @@ import rsa
 import secrets
 import base64
 import hashlib
+import os
 app = Flask(__name__)
 
 @app.route('/')
@@ -45,10 +46,11 @@ def challenge():
             if secrets.compare_digest(ch, resp):
                 with open('last-login-time.txt','w') as o:
                     o.write(str(time.time()))
+                os.unlink('latest-relative-time.txt')
                 return 'Challenge passed!'
         except:
             print('Error while decrypting.')
         return 'Challenge failed!', 403
 
 if __name__ == '__main__':
-    app.run()
+    app.run('127.0.0.1',5001)
