@@ -2,7 +2,7 @@
 from flask import Flask, request
 import time
 import rsa
-import secrets
+#import secrets
 import base64
 import hashlib
 import os
@@ -26,7 +26,7 @@ def get_challenge(ip):
     if ip in challenges:
         return challenges.pop(ip)
     else:
-        data = secrets.token_bytes(512)
+        data = os.urandom(512)
         challenges.update({ip:data})
         return data
 

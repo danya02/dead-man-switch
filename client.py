@@ -3,7 +3,7 @@ import requests
 import rsa
 import hashlib
 import base64
-ADDR='http://127.0.0.1:5001/challenge'
+ADDR='http://deadman.danya02.ru/auth/challenge'
 data = base64.b64decode(requests.get(ADDR).content)
 my_key = rsa.PrivateKey.load_pkcs1(open('client-priv.pem','rb').read())
 server_key = rsa.PublicKey.load_pkcs1(open('server-pub.pem', 'rb').read())
