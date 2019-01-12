@@ -8,6 +8,8 @@ import hashlib
 import os
 app = Flask(__name__)
 
+PATH = '/var/dead-man-switch/deadman/'
+
 @app.route('/')
 def hello():
     return 'This is the challenge-response server.'
@@ -33,8 +35,8 @@ def get_challenge(ip):
 
 @app.route('/challenge',methods = ['POST', 'GET'])
 def challenge():
-    peer_pub_key = rsa.PublicKey.load_pkcs1(open('client-pub.pem', 'rb').read())
-    my_sec_key = rsa.PrivateKey.load_pkcs1(open('server-priv.pem','rb').read())
+    peer_pub_key = rsa.PublicKey.load_pkcs1(open(PATH+'client-pub.pem', 'rb').read())
+    my_sec_key = rsa.PrivateKey.load_pkcs1(open(PATH+'server-priv.pem','rb').read())
     ip = request.remote_addr
     if request.method=='GET':
         ch=get_challenge(ip)

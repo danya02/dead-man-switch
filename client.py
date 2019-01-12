@@ -4,10 +4,14 @@ import rsa
 import hashlib
 import base64
 ADDR='http://deadman.danya02.ru/auth/challenge'
-data = base64.b64decode(requests.get(ADDR).content)
+data = requests.get(ADDR).content
+print('<', data)
+data = base64.b64decode(data)
 my_key = rsa.PrivateKey.load_pkcs1(open('client-priv.pem','rb').read())
 server_key = rsa.PublicKey.load_pkcs1(open('server-pub.pem', 'rb').read())
 nonce = rsa.decrypt(data,my_key)
 digest = hashlib.sha3_512(nonce)
 enc = rsa.encrypt(digest.digest(), server_key)
-requests.post(ADDR, data=base64.b64encode(enc)).raise_for_status()
+xmit=base64.b64encode(enc)
+print('>',xmit)
+requests.post(ADDR, data=xmit).raise_for_status()
