@@ -3,6 +3,7 @@ from flask import Flask, request
 import time
 import rsa
 #import secrets
+import json
 import base64
 import hashlib
 import os
@@ -23,14 +24,19 @@ def hello():
 # 4. If the IP transmitted is different from the one the server thinks the client has, it returns a 409 Conflict response, which it will not return in any other circumstance
 # 5. Server decrypts message, compares it with the original challenge, and acts based on whether the response is correct
 
-challenges = {}
 
 def get_challenge(ip):
+    try:
+        challenges = json.load(open('/tmp/deadman_challenges.json'))
+    except:
+        challenges = dict()
     if ip in challenges:
         return challenges.pop(ip)
     else:
         data = os.urandom(512)
         challenges.update({ip:data})
+        with open('/tmp/deadman_challenges.json','w') as o:
+            json.dump(o, challenges)
         return data
 
 
