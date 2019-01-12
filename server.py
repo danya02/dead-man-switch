@@ -31,12 +31,15 @@ def get_challenge(ip):
     except:
         challenges = dict()
     if ip in challenges:
-        return challenges.pop(ip)
+        ch = challenges.pop(ip)
+        with open('/tmp/deadman_challenges.json','w') as o:
+            json.dump(challenges, o)
+        return base64.b64decode(bytes(challenges.pop(ip), 'utf-8'))
     else:
         data = os.urandom(512)
-        challenges.update({ip:data})
+        challenges.update({ip:str(base64.b64encode(data), 'utf-8')})
         with open('/tmp/deadman_challenges.json','w') as o:
-            json.dump(o, challenges)
+            json.dump(challenges, o)
         return data
 
 
