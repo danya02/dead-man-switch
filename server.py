@@ -41,7 +41,7 @@ def challenge():
     ip = request.remote_addr
     if request.method=='GET':
         ch=get_challenge(ip)
-        return base64.b64encode(rsa.encrypt(ch,peer_pub_key))
+        return bytes(ip, 'utf-8')+b':'+base64.b64encode(rsa.encrypt(ch,peer_pub_key))
     elif request.method=='POST':
         try:
             challenge = get_challenge(ip)
