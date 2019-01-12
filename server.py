@@ -45,10 +45,10 @@ def challenge():
         try:
             ch = hashlib.sha3_512(get_challenge(ip)).digest()
             resp = rsa.decrypt(base64.b64decode(request.get_data()), my_sec_key)
-            if secrets.compare_digest(ch, resp):
-                with open('last-login-time.txt','w') as o:
+            if ch == resp:
+                with open(PATH+'last-login-time.txt','w') as o:
                     o.write(str(time.time()))
-                os.unlink('latest-relative-time.txt')
+                os.unlink(PATH+'latest-relative-time.txt')
                 return 'Challenge passed!'
         except:
             print('Error while decrypting.')
