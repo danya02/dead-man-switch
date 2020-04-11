@@ -1,5 +1,5 @@
 from peewee import *
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect, url_for, Response
 import datetime
 import gnupg
 import functools
@@ -19,7 +19,7 @@ class MyModel(Model):
 
 class CheckinKey(MyModel):
     pub_key = TextField()
-    fingerprint = CharField()
+    fingerprint = CharField(unique=True)
     name = CharField()
     distrusted = BooleanField()
     trust_status_since = DateTimeField(default=datetime.datetime.now)
@@ -32,11 +32,13 @@ class Checkin(MyModel):
     comment = TextField(null=True)
     can_be_evicted = BooleanField(default=True)
 
-db.create_tables([CheckinKey, Checkin])
+class Lockdown(MyModel):
+    message = TextField()
+    hard_lock = BooleanField()
 
-@app.route('/')
-def hello_world():
-    return 'Hello, World!'
+db.connect()
+db.create_tables([CheckinKey, Checkin, Lockdown])
+db.disconnect()
 
 def needs_valid_signature(or_master=False):
     def wrapper(fun):
@@ -64,8 +66,12 @@ def needs_valid_signature(or_master=False):
                 if key.distrusted:
                     return jsonify({'status': 'forbidden', 'reason': 'distrusted', 'since':key.trust_status_since.isoformat(),
                         'text': 'The key you used was distrusted as of '+key.trust_status_since.isoformat()+' and so cannot be used for check-ins. Use a new key.'}), 403
+            try:
+                message = json.loads(message)
+                if not isinstance(message, dict): raise ValueError
+            except:
+                return jsonify({'status':'data_error', 'reason':'invalid_json', 'text': 'The message was not a valid JSON object.'}), 422
 
-            message = json.loads(message)
             if message.get('unix_minute') != int(time.time()) // 60:
                 return jsonify({'status': 'forbidden', 'reason':'timestamp_wrong', 'timestamp': {'mine':int(time.time()) // 60, 'yours': message.get('unix_minute')},
                     'text': 'The timestamp provided with your message is incorrect; it should be the number of minutes elapsed since the Unix Epoch. It is currently '+str(int(time.time()) // 60)+' but you provided '+ repr(message.get('unix_minute'))}), 403
@@ -74,11 +80,60 @@ def needs_valid_signature(or_master=False):
         return fun(*args, **kwargs)
     return wrapper
 
+def alters_state(human_readable=True):
+    def wrapper(fun):
+        @functools.wraps(fun)
+        def wrapped(*args, **kwargs):
+            if len(Lockdown.select())!=0:
+                return redirect(url_for('main'))
+            else:
+                return fun(*args, **kwargs)
+
+
+@app.before_request
+def before_request():
+    db.connect()
+    if len(Lockdown.select())>0:
+        ld = list(Lockdown.select())[0]
+        if ld.hard_lock:
+            return '', 204
+
+def after_request():
+    db.disconnect()
+
+@app.route('/')
+def main():
+    return 'Hello, World!'
+
+
+@app.route('/', methods=['DELETE'])
+@needs_valid_signature(True)
+@alters_state
+def lockdown(key=True, message=None):
+    if key is not None:
+        return jsonify({'status':'forbidden', 'reason':'need_master_auth', 'text': 'This action requires being authed by the master key.'}), 403
+    if 'text' not in message:
+        return jsonify({'status':'data_error', 'reason':'need_text', 'text': 'A text message is required to initiate lockdown.'}), 422
+    if 'hard' not in message:
+        return jsonify({'status':'data_error', 'reason':'need_hard', 'text': 'Is the lockdown hard or not?'}), 422
+    Lockdown.create(message=message['text'], hard_lock=message['hard'])
+    return jsonify({'status':'ok'})
+
+
 @app.route('/api/checkin', methods=['POST'])
 @needs_valid_signature(False)
+@alters_state
 def check_in(key=None, message=None):
     new_checkin = Checkin.create(used_key=key, ip_address=request.remote_addr, comment=message.get('comment'), can_be_evicted=not message.get('prevent_eviction', False))
-    return jsonify({'status':'ok', 'id':new_checkin.uuid, 'text':'Checkin successfully registered and assigned id '+new_checkin.uuid})
+    
+    resp = jsonify({'status':'ok', 'id':new_checkin.uuid, 'text':'Checkin successfully registered and assigned id '+new_checkin.uuid})
+    resp.headers['Location'] = url_for('get_checkin', uid=new_checkin.uuid)
+    return resp, 201
+
+@app.route('/api/checkin/<uid>', methods=['GET'])
+def get_checkin(uid):
+    return 'To be implemented', 500
+
 
 @app.route('/api/key/<fprint>', methods=['GET'])
 def get_key(fprint):
@@ -90,6 +145,7 @@ def get_key(fprint):
 
 @app.route('/api/key/<fprint>', methods=['DELETE'])
 @needs_valid_signature(True)
+@alters_state
 def distrust_key(fprint, key=None, message=None):
     if key is None or key.fingerprint==fprint:
         key.distrusted = True
@@ -97,5 +153,30 @@ def distrust_key(fprint, key=None, message=None):
         key.save()
         return jsonify({'status':'ok', 'text': 'This key is now distrusted.'}), 200
     else:
-        return jsonify({'status':'forbidden', 'reason':'fprint_mismatch', 'text':'The message\'s key fingerprint does not match the fingerprint you requested and is not the master.'}), 200
+        return jsonify({'status':'forbidden', 'reason':'fprint_mismatch', 'text':'The message\'s key fingerprint does not match the fingerprint you requested and is not the master.'}), 403
 
+@app.route('/api/key', methods=['POST'])
+@needs_valid_signature(True)
+@alters_state
+def create_key(key=True, message=None):
+    if key is not None:
+        return jsonify({'status':'forbidden', 'reason':'need_master_auth', 'text': 'This action requires being authed by the master key.'}), 403
+    try:
+        pubkey = message['pubkey']
+        name = message['name']
+    except KeyError:
+        return jsonify({'status':'data_error', 'reason':'no_field', 'text':'A mandatory field was omitted from the json'}), 411
+
+
+    import_res = gpg.import_keys(pubkey)
+    if len(import_res.fingerprints)==0:
+        return jsonify({'status':'data_error', 'reason':'no_fingerprint', 'text':'There were no fingerprints in the provided key data.'}), 411
+    elif len(import_res.fingerprints)>1:
+        return jsonify({'status':'data_error', 'reason':'many_fingerprints', 'text':'There were multiple fingerprints in the provided key data; this is not supported, so resend them separately.'}), 413
+
+    fprint = import_res.fingerprints[0]
+    key_id = (CheckinKey.insert(name=name, pub_key=pubkey).on_conflict_replace().execute())
+    
+    resp = jsonify({'status':'ok', 'fingerprint':fprint, 'text': 'The key with the fingerprint '+fprint+' was registered.'})
+    resp.headers['Location'] = url_for('get_key', fprint=fprint)
+    return resp, 201
