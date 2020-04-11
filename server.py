@@ -38,7 +38,7 @@ class Lockdown(MyModel):
 
 db.connect()
 db.create_tables([CheckinKey, Checkin, Lockdown])
-db.disconnect()
+db.close()
 
 def needs_valid_signature(or_master=False):
     def wrapper(fun):
@@ -76,8 +76,9 @@ def needs_valid_signature(or_master=False):
                 return jsonify({'status': 'forbidden', 'reason':'timestamp_wrong', 'timestamp': {'mine':int(time.time()) // 60, 'yours': message.get('unix_minute')},
                     'text': 'The timestamp provided with your message is incorrect; it should be the number of minutes elapsed since the Unix Epoch. It is currently '+str(int(time.time()) // 60)+' but you provided '+ repr(message.get('unix_minute'))}), 403
 
-        kwargs.update({'key':key, 'message':message})
-        return fun(*args, **kwargs)
+            kwargs.update({'key':key, 'message':message})
+            return fun(*args, **kwargs)
+        return wrapped
     return wrapper
 
 def alters_state(human_readable=True):
@@ -88,6 +89,8 @@ def alters_state(human_readable=True):
                 return redirect(url_for('main'))
             else:
                 return fun(*args, **kwargs)
+        return wrapped
+    return wrapper
 
 
 @app.before_request
@@ -99,16 +102,16 @@ def before_request():
             return '', 204
 
 def after_request():
-    db.disconnect()
+    db.close()
 
 @app.route('/')
 def main():
     return 'Hello, World!'
 
 
-@app.route('/', methods=['DELETE'])
+@app.route('/world', methods=['DELETE'])
 @needs_valid_signature(True)
-@alters_state
+@alters_state(True)
 def lockdown(key=True, message=None):
     if key is not None:
         return jsonify({'status':'forbidden', 'reason':'need_master_auth', 'text': 'This action requires being authed by the master key.'}), 403
@@ -122,7 +125,7 @@ def lockdown(key=True, message=None):
 
 @app.route('/api/checkin', methods=['POST'])
 @needs_valid_signature(False)
-@alters_state
+@alters_state(False)
 def check_in(key=None, message=None):
     new_checkin = Checkin.create(used_key=key, ip_address=request.remote_addr, comment=message.get('comment'), can_be_evicted=not message.get('prevent_eviction', False))
     
@@ -145,7 +148,7 @@ def get_key(fprint):
 
 @app.route('/api/key/<fprint>', methods=['DELETE'])
 @needs_valid_signature(True)
-@alters_state
+@alters_state(False)
 def distrust_key(fprint, key=None, message=None):
     if key is None or key.fingerprint==fprint:
         key.distrusted = True
@@ -157,7 +160,7 @@ def distrust_key(fprint, key=None, message=None):
 
 @app.route('/api/key', methods=['POST'])
 @needs_valid_signature(True)
-@alters_state
+@alters_state(False)
 def create_key(key=True, message=None):
     if key is not None:
         return jsonify({'status':'forbidden', 'reason':'need_master_auth', 'text': 'This action requires being authed by the master key.'}), 403
@@ -180,3 +183,6 @@ def create_key(key=True, message=None):
     resp = jsonify({'status':'ok', 'fingerprint':fprint, 'text': 'The key with the fingerprint '+fprint+' was registered.'})
     resp.headers['Location'] = url_for('get_key', fprint=fprint)
     return resp, 201
+
+if __name__ == '__main__':
+    app.run('0.0.0.0', 5000)
