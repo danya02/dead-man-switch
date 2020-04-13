@@ -9,9 +9,9 @@ import time
 
 app = Flask(__name__)
 db = SqliteDatabase('dead-man.db')
-gpg = gnupg.GPG(gnupghome='/home/danya')
+gpg = gnupg.GPG(gnupghome='/home/danya/.gnupg', verbose=True, use_agent=True)
 
-MASTER_FINGERPRINT = 'DEADBEEF'
+MASTER_FINGERPRINT = '73F0F8B9A5468F6E02E088BC90DF11CC3211DA60'
 
 class MyModel(Model):
     class Meta:
@@ -44,13 +44,21 @@ def needs_valid_signature(or_master=False):
     def wrapper(fun):
         @functools.wraps(fun)
         def wrapped(*args, **kwargs):
-            data = request.json()
+            try:
+                data = request.get_json(force=True)
+            except:
+                return jsonify({'status': 'data_error', 'reason':'bad_outer_json', 'text': 'The outer message was not recognized as valid JSON'}), 400
             ip = request.remote_addr
-            signature = data['signature']
-            message = data['message']
+            try:
+                signature = data['signature']
+                message = data['message']
+            except KeyError:
+                return jsonify({'status': 'data_error', 'reason':'no_outer_field', 'text': 'The outer message did not contain an obligatory field'}), 400
+
             to_verify = '-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n' +message+ '\n'+signature
             verification = gpg.verify(to_verify)
             if not verification:
+                help(verification)
                 return jsonify({'status': 'forbidden', 'reason':'unregistered', 'text': 'Verification failed, first you need to register the PGP key'}), 403
 
             fingerprint = verification.fingerprint
@@ -101,15 +109,17 @@ def before_request():
         if ld.hard_lock:
             return '', 204
 
-def after_request():
+@app.after_request
+def after_request(resp):
     db.close()
+    return resp
 
 @app.route('/')
 def main():
     return 'Hello, World!'
 
 
-@app.route('/world', methods=['DELETE'])
+@app.route('/', methods=['DELETE'])
 @needs_valid_signature(True)
 @alters_state(True)
 def lockdown(key=True, message=None):
@@ -129,8 +139,8 @@ def lockdown(key=True, message=None):
 def check_in(key=None, message=None):
     new_checkin = Checkin.create(used_key=key, ip_address=request.remote_addr, comment=message.get('comment'), can_be_evicted=not message.get('prevent_eviction', False))
     
-    resp = jsonify({'status':'ok', 'id':new_checkin.uuid, 'text':'Checkin successfully registered and assigned id '+new_checkin.uuid})
-    resp.headers['Location'] = url_for('get_checkin', uid=new_checkin.uuid)
+    resp = jsonify({'status':'ok', 'id':new_checkin.uuid, 'text':'Checkin successfully registered and assigned id '+str(new_checkin.uuid)})
+    resp.headers['Location'] = url_for('get_checkin', uid=str(new_checkin.uuid))
     return resp, 201
 
 @app.route('/api/checkin/<uid>', methods=['GET'])
@@ -178,7 +188,7 @@ def create_key(key=True, message=None):
         return jsonify({'status':'data_error', 'reason':'many_fingerprints', 'text':'There were multiple fingerprints in the provided key data; this is not supported, so resend them separately.'}), 413
 
     fprint = import_res.fingerprints[0]
-    key_id = (CheckinKey.insert(name=name, pub_key=pubkey).on_conflict_replace().execute())
+    key_id = (CheckinKey.insert(name=name, pub_key=pubkey, fingerprint=fprint, distrusted=False).on_conflict_replace().execute())
     
     resp = jsonify({'status':'ok', 'fingerprint':fprint, 'text': 'The key with the fingerprint '+fprint+' was registered.'})
     resp.headers['Location'] = url_for('get_key', fprint=fprint)
