@@ -38,6 +38,7 @@ class Checkin(MyModel):
 
 class Lockdown(MyModel):
     message = TextField()
+    date = DateTimeField(default=datetime.datetime.now)
     hard_lock = BooleanField()
 
 
@@ -113,7 +114,13 @@ def alters_state(human_readable=True):
         @functools.wraps(fun)
         def wrapped(*args, **kwargs):
             if len(Lockdown.select()) != 0:
-                return redirect(url_for('main'))
+                if human_readable:
+                    return redirect(url_for('main'))
+                else:
+                    lock = list(Lockdown.select())[0]
+                    return jsonify({'status': 'emergency', 'reason': 'lockdown', 'message': lock.message,
+                                    'date': lock.date.isoformat(), 'text': 'This system is under lockdown since ' + str(
+                            lock.date) + '. The owner left this message: ' + lock.message}), 451
             else:
                 return fun(*args, **kwargs)
 
@@ -126,9 +133,9 @@ def alters_state(human_readable=True):
 def before_request():
     db.connect()
     if len(Lockdown.select()) > 0:
-        ld = list(Lockdown.select())[0]
-        if ld.hard_lock:
-            return '', 204
+        for lock in list(Lockdown.select()):
+            if lock.hard_lock:
+                return '', 204
 
 
 @app.after_request
@@ -173,7 +180,18 @@ def check_in(key=None, message=None):
 
 @app.route('/api/checkin/<uid>', methods=['GET'])
 def get_checkin(uid):
-    return 'To be implemented', 500
+    try:
+        checkin = Checkin.get(Checkin.uuid == uuid.UUID(uid))
+    except Checkin.DoesNotExist:
+        return {'status': 'not_found', 'id': uid,
+                'text': 'The requested check-in with id ' + uid + ' not found. It may never have existed or been evicted.'}, 404
+    except ValueError:
+        return {'status': 'data_error', 'reason': 'not_uuid', 'text': 'You have requested an invalid UUID.'}
+
+    # TODO: !!!!!!!!! IMPORTANT PRIVACY CONSIDERATION: Should we reveal IP address? !!!!!!!!!!!!!!!!!!!!!!
+    return jsonify(
+        {'status': 'ok', 'ip': checkin.ip_address, 'date': checkin.date.isoformat(), 'comment': checkin.comment,
+         'evictable': checkin.can_be_evicted, 'key': checkin.used_key.fingerprint})
 
 
 @app.route('/api/key/<fprint>', methods=['GET'])

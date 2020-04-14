@@ -21,7 +21,7 @@ def compose_message(msg, use_master=False):
     msg = json.dumps(msg)
     signature = gpg.sign(msg, keyid=MASTER_KEY if use_master else MY_KEY, detach=True)
     return json.dumps({'signature': signature.data if isinstance(signature.data, str) else str(signature.data, 'utf-8'),
-                       'message': msg if isinstance(msg, str) else str(msg, 'utf-8')})
+                       'message': msg})
 
 
 def check_in(comment=None, prevent_eviction=False):
@@ -48,7 +48,9 @@ def distrust_some_key(fprint):
 
 
 def lockdown(message, hard=False):
-    resp = requests.delete(URL('/'), data=compose_message({'random': str(uuid.uuid4())}, use_master=True))
+    resp = requests.delete(URL('/'),
+                           data=compose_message({'random': str(uuid.uuid4()), 'text': message, 'hard': hard},
+                                                use_master=True))
     print(resp, resp.text)
 
 
