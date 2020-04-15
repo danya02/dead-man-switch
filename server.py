@@ -150,8 +150,8 @@ def main():
 
 
 @app.route('/', methods=['DELETE'])
-@needs_valid_signature(True)
-@alters_state(True)
+@needs_valid_signature(or_master=True)
+@alters_state(human_readable=True)
 def lockdown(key=True, message=None):
     if key is not None:
         return jsonify({'status': 'forbidden', 'reason': 'need_master_auth',
@@ -166,8 +166,8 @@ def lockdown(key=True, message=None):
 
 
 @app.route('/api/checkin', methods=['POST'])
-@needs_valid_signature(False)
-@alters_state(False)
+@needs_valid_signature(or_master=False)
+@alters_state(human_readable=False)
 def check_in(key=None, message=None):
     new_checkin = Checkin.create(used_key=key, ip_address=request.remote_addr, comment=message.get('comment'),
                                  can_be_evicted=not message.get('prevent_eviction', False))
@@ -206,8 +206,8 @@ def get_key(fprint):
 
 
 @app.route('/api/key/<fprint>', methods=['DELETE'])
-@needs_valid_signature(True)
-@alters_state(False)
+@needs_valid_signature(or_master=True)
+@alters_state(human_readable=False)
 def distrust_key(fprint, key=None, message=None):
     if key is None or key.fingerprint == fprint:
         key.distrusted = True
@@ -220,8 +220,8 @@ def distrust_key(fprint, key=None, message=None):
 
 
 @app.route('/api/key', methods=['POST'])
-@needs_valid_signature(True)
-@alters_state(False)
+@needs_valid_signature(or_master=True)
+@alters_state(human_readable=False)
 def create_key(key=True, message=None):
     if key is not None:
         return jsonify({'status': 'forbidden', 'reason': 'need_master_auth',
