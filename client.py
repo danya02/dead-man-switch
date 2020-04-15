@@ -9,7 +9,7 @@ gpg = gnupg.GPG()
 
 MY_KEY = 'C7EB560F9B4744E9CC927040CC9FFFF135CA075C'
 MASTER_KEY = '73F0F8B9A5468F6E02E088BC90DF11CC3211DA60'
-HOST = 'http://127.0.0.1:5000'
+HOST = 'http://127.0.0.1:5050'
 
 
 def URL(endpoint):
@@ -53,6 +53,10 @@ def lockdown(message, hard=False):
                                                 use_master=True))
     print(resp, resp.text)
 
+
+def run_eviction():
+    resp = requests.get(URL('/api/checkin/evict'))
+    print(resp, resp.text)
 
 if __name__ == '__main__':
     add_my_key()

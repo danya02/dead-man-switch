@@ -6,13 +6,22 @@ import functools
 import uuid
 import json
 import time
+import logging
+
+log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
+
+logger = logging.getLogger('peewee')
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.DEBUG)
 
 app = Flask(__name__)
 db = SqliteDatabase('dead-man.db')
 gpg = gnupg.GPG(gnupghome='/home/danya/.gnupg', verbose=True, use_agent=True)
 
 MASTER_FINGERPRINT = '73F0F8B9A5468F6E02E088BC90DF11CC3211DA60'
-
+EVICTION_THRESHOLD = 1024 # how many evictable rows are allowed per key
+                          # before the oldest begin being evicted
 
 class MyModel(Model):
     class Meta:
@@ -148,6 +157,18 @@ def after_request(resp):
 def main():
     return 'Hello, World!'
 
+@alters_state(human_readable=False)
+@app.route('/api/checkin/evict')
+def run_eviction():
+    answer = {}
+    for key in CheckinKey.select():
+        try:
+            later_than = Checkin.select().where((Checkin.can_be_evicted==True) & (Checkin.used_key==key)).order_by(Checkin.date)[-EVICTION_THRESHOLD]
+            rows = Checkin.delete().where((Checkin.date<later_than.date) & (Checkin.used_key==key)).execute()
+        except IndexError:
+            rows = 0
+        answer[key.fingerprint]=rows
+    return jsonify({'status': 'ok', 'affected_rows':answer})
 
 @app.route('/', methods=['DELETE'])
 @needs_valid_signature(or_master=True)
@@ -161,7 +182,7 @@ def lockdown(key=True, message=None):
                         'text': 'A text message is required to initiate lockdown.'}), 422
     if 'hard' not in message:
         return jsonify({'status': 'data_error', 'reason': 'need_hard', 'text': 'Is the lockdown hard or not?'}), 422
-    Lockdown.create(message=message['text'], hard_lock=message['hard'])
+    Lockdown.create(message=message['text'], hard_lock=bool(message['hard']))
     return jsonify({'status': 'ok'})
 
 
@@ -183,10 +204,10 @@ def get_checkin(uid):
     try:
         checkin = Checkin.get(Checkin.uuid == uuid.UUID(uid))
     except Checkin.DoesNotExist:
-        return {'status': 'not_found', 'id': uid,
-                'text': 'The requested check-in with id ' + uid + ' not found. It may never have existed or been evicted.'}, 404
+        return jsonify({'status': 'not_found', 'id': uid,
+                'text': 'The requested check-in with id ' + uid + ' not found. It may never have existed or been evicted.'}), 404
     except ValueError:
-        return {'status': 'data_error', 'reason': 'not_uuid', 'text': 'You have requested an invalid UUID.'}
+        return jsonify({'status': 'data_error', 'reason': 'not_uuid', 'text': 'You have requested an invalid UUID.'}), 400
 
     # TODO: !!!!!!!!! IMPORTANT PRIVACY CONSIDERATION: Should we reveal IP address? !!!!!!!!!!!!!!!!!!!!!!
     return jsonify(
@@ -254,4 +275,4 @@ def create_key(key=True, message=None):
 if __name__ == '__main__':
     import sys
 
-    app.run('0.0.0.0', 5000, debug='test' in sys.argv)
+    app.run('0.0.0.0', 5050, debug='test' in sys.argv)
