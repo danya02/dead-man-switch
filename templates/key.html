@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Checkins for key {{key.fingerprint}}</title>
+</head>
+<body>
+<h1>Checkins for key {{key.fingerprint}}</h1>
+<h2>({{ key.name }})</h2>
+
+<table border="1">
+    <tr><th>UUID</th><th>Date</th><th>IP address</th><th>Has comment?</th><th>Can be evicted?</th></tr>
+{% for checkin in key.checkins %}
+    <tr>
+        <td><a href="{{ url_for('view_checkin', uuid=checkin.uuid) }}"><code>{{ checkin.uuid }}</code></a></td>
+        <td>{{ checkin.date.ctime() }}</td>
+        <td>{{ checkin.safe_ip_addr() }}</td>
+        <td><input type="checkbox" disabled="disabled" readonly="readonly" {{'checked' if checkin.comment else ''}} alt="Checkin {{'with' if checkin.comment else 'no'}} comment"></td>
+        <td><input type="checkbox" disabled="disabled" readonly="readonly" {{'checked' if checkin.can_be_evicted else ''}} alt="Checkin {{'can' if checkin.can_be_evicted else 'cannot'}} be evicted"></td>
+    </tr>
+    {% endfor %}
+</table>
+</body>
+</html>

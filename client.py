@@ -28,23 +28,27 @@ def check_in(comment=None, prevent_eviction=False):
     resp = requests.post(URL('/api/checkin'),
                          data=compose_message({'comment': comment, 'prevent_eviction': prevent_eviction}))
     print(resp, resp.text)
+    return resp
 
 
 def add_my_key(name='Key for ' + socket.gethostname()):
     resp = requests.post(URL('/api/key'),
                          data=compose_message({'name': name, 'pubkey': str(gpg.export_keys(MY_KEY))}, use_master=True))
     print(resp, resp.text)
+    return resp
 
 
 def distrust_my_key():
     resp = requests.delete(URL('/api/key/' + MY_KEY), data=compose_message({'random': str(uuid.uuid4())}))
     print(resp, resp.text)
+    return resp
 
 
 def distrust_some_key(fprint):
     resp = requests.delete(URL('/api/key/' + fprint),
                            data=compose_message({'random': str(uuid.uuid4())}, use_master=True))
     print(resp, resp.text)
+    return resp
 
 
 def lockdown(message, hard=False):
@@ -52,12 +56,15 @@ def lockdown(message, hard=False):
                            data=compose_message({'random': str(uuid.uuid4()), 'text': message, 'hard': hard},
                                                 use_master=True))
     print(resp, resp.text)
+    return resp
 
 
 def run_eviction():
     resp = requests.get(URL('/api/checkin/evict'))
     print(resp, resp.text)
+    return resp
+
 
 if __name__ == '__main__':
-    add_my_key()
+    #add_my_key()
     check_in(comment=input('Comment: '), prevent_eviction=input('Do not evict? Y/N').lower() == 'y')

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dead Man's Log</title>
+</head>
+<body>
+{% if lock != None %}
+<div id="lockdown-container">
+    <h1>Lockdown mode</h1>
+    <div id="lockdown-since-text"><p>This system is in lockdown mode since {{ str(lock.date) }}</p></div>
+    <div id="lockdown-last-will-above"><p>The system owner has left this message:</p></div>
+    <div id="lockdown-last-will">{{lock.message}}</div>
+</div>
+{% endif %}
+<table border="1">
+    <caption>Registered keys</caption>
+    <tr>
+        <th>Name</th><th>Last sign-in</th><th>Trusted key?</th><th>Trust status since</th>
+    </tr>
+    {% for key in CheckinKey.select() %}
+    <tr>
+        <td><a href="{{ url_for('view_key', fprint=key.fingerprint) }}">{{ key.name }}</a></td>
+        <td>{{ key.checkins[-1].date.ctime() }}</td>
+        <td><input type="checkbox" disabled="disabled" readonly="readonly" {{'' if key.distrusted else 'checked'}} alt="Key is {{'dis' if key.distrusted else ''}}trusted"></td>
+        <td>{{key.trust_status_since.ctime()}}</td>
+    </tr>
+    {% endfor %}
+</table>
+</body>
+</html>

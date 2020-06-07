@@ -1,5 +1,5 @@
 from peewee import *
-from flask import Flask, request, jsonify, redirect, url_for, Response
+from flask import Flask, request, jsonify, redirect, url_for, render_template
 import datetime
 import gnupg
 import functools
@@ -20,8 +20,8 @@ db = SqliteDatabase('dead-man.db')
 gpg = gnupg.GPG(gnupghome='/home/danya/.gnupg', verbose=True, use_agent=True)
 
 MASTER_FINGERPRINT = '73F0F8B9A5468F6E02E088BC90DF11CC3211DA60'
-EVICTION_THRESHOLD = 1024 # how many evictable rows are allowed per key
-                          # before the oldest begin being evicted
+EVICTION_THRESHOLD = 1024  # how many evictable rows are allowed per key before the oldest begin being evicted
+
 
 class MyModel(Model):
     class Meta:
@@ -43,6 +43,10 @@ class Checkin(MyModel):
     ip_address = IPField()
     comment = TextField(null=True)
     can_be_evicted = BooleanField(default=True)
+
+    def safe_ip_addr(self):
+        a, b, c, d = self.ip_address.split('.')
+        return f'{a}.{b}.{c}.XXX'
 
 
 class Lockdown(MyModel):
@@ -155,7 +159,30 @@ def after_request(resp):
 
 @app.route('/')
 def main():
-    return 'Hello, World!'
+    try:
+        lock = Lockdown.select()[0]
+    except IndexError:
+        lock = None
+    return render_template('index.html', Checkin=Checkin, CheckinKey=CheckinKey, lock=lock)
+
+
+@app.route('/key/<fprint>')
+def view_key(fprint):
+    try:
+        key = CheckinKey.get(CheckinKey.fingerprint == fprint)
+    except CheckinKey.DoesNotExist:
+        return 'key not found', 404
+    return render_template('key.html', Checkin=Checkin, CheckinKey=CheckinKey, key=key)
+
+
+@app.route('/checkin/<uuid>')
+def view_checkin(uuid):
+    try:
+        checkin = Checkin.get(Checkin.uuid == uuid)
+    except Checkin.DoesNotExist:
+        return 'checkin not found', 404
+    return render_template('checkin.html', Checkin=Checkin, CheckinKey=CheckinKey, checkin=checkin)
+
 
 @alters_state(human_readable=False)
 @app.route('/api/checkin/evict')
@@ -163,12 +190,16 @@ def run_eviction():
     answer = {}
     for key in CheckinKey.select():
         try:
-            later_than = Checkin.select().where((Checkin.can_be_evicted==True) & (Checkin.used_key==key)).order_by(Checkin.date)[-EVICTION_THRESHOLD]
-            rows = Checkin.delete().where((Checkin.date<later_than.date) & (Checkin.used_key==key)).execute()
+            later_than = \
+                Checkin.select().where((Checkin.can_be_evicted == True) & (Checkin.used_key == key)).order_by(
+                    Checkin.date)[
+                    -EVICTION_THRESHOLD]
+            rows = Checkin.delete().where((Checkin.date < later_than.date) & (Checkin.used_key == key)).execute()
         except IndexError:
             rows = 0
-        answer[key.fingerprint]=rows
-    return jsonify({'status': 'ok', 'affected_rows':answer})
+        answer[key.fingerprint] = rows
+    return jsonify({'status': 'ok', 'affected_rows': answer})
+
 
 @app.route('/', methods=['DELETE'])
 @needs_valid_signature(or_master=True)
@@ -205,13 +236,12 @@ def get_checkin(uid):
         checkin = Checkin.get(Checkin.uuid == uuid.UUID(uid))
     except Checkin.DoesNotExist:
         return jsonify({'status': 'not_found', 'id': uid,
-                'text': 'The requested check-in with id ' + uid + ' not found. It may never have existed or been evicted.'}), 404
+                        'text': 'The requested check-in with id ' + uid + ' not found. It may never have existed or been evicted.'}), 404
     except ValueError:
-        return jsonify({'status': 'data_error', 'reason': 'not_uuid', 'text': 'You have requested an invalid UUID.'}), 400
-
-    # TODO: !!!!!!!!! IMPORTANT PRIVACY CONSIDERATION: Should we reveal IP address? !!!!!!!!!!!!!!!!!!!!!!
+        return jsonify(
+            {'status': 'data_error', 'reason': 'not_uuid', 'text': 'You have requested an invalid UUID.'}), 400
     return jsonify(
-        {'status': 'ok', 'ip': checkin.ip_address, 'date': checkin.date.isoformat(), 'comment': checkin.comment,
+        {'status': 'ok', 'ip': checkin.safe_ip_addr(), 'date': checkin.date.isoformat(), 'comment': checkin.comment,
          'evictable': checkin.can_be_evicted, 'key': checkin.used_key.fingerprint})
 
 
